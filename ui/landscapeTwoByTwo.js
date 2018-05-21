@@ -25,7 +25,7 @@ LandscapeTwoByTwo.prototype.render = function(stuff) {
   var frame = paper.rect(frame_x, frame_y, this.frameDim.w, this.frameDim.h);
   frame.attr({'fill': 'black'});
   var img = paper.image(null, frame_x, frame_y, this.frameDim.w, this.frameDim.h);
-
+  img.rotate(180);
   images.push(img);
   frames.push(frame);
   all.push(img);
