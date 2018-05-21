@@ -11,23 +11,24 @@ $(window).ready(function() {
 
   window.p = new PhotoView(window.Config, appState);
   bv = new ButtonView();
+  snackbar = new Snackbar(socketProxy);
 
-  var ssm = new ShmileStateMachine(window.p, socketProxy, appState, window.Config, bv)
+  var ssm = new ShmileStateMachine(window.p, socketProxy, appState, window.Config, bv, snackbar)
 
   bv.fsm = ssm.fsm;
 
   window.socketProxy = socketProxy;
 
-  socketProxy.on('template', (template) => {
-    console.log("blah " + template.overlayImage);
+  socketProxy.on('template', function(template){
     layer.register(ssm.fsm);
     bv.render();
+    snackbar.render();
     p.render(template);
-
-    // p.setOverlay(template.overlayImage);
-    // p.setPicturesTotal(template.photosTotal);
-    // p.setLayout(template.photoView);
-
     ssm.fsm.connected();
   });
+
+  socketProxy.on('configsChanged', function() {
+    window.location.reload(false);
+  });
+
 });

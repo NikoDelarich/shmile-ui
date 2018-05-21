@@ -20,14 +20,44 @@
  * @param [AppState] appState Global initialized state
  * @param [Config] config     The configuration options passed to the app
  */
-var ShmileStateMachine = function(photoView, socket, appState, config, buttonView) {
+var ShmileStateMachine = function(photoView, socket, appState, config, buttonView, snackbar) {
   this.photoView = photoView;
   this.socket = socket;
   this.appState = appState;
   this.config = config;
-  this.buttonView = buttonView
+  this.buttonView = buttonView;
+  this.snackbar = snackbar;
 
   var self = this;
+
+  this.buttonPrint = null;
+  this.shouldSendNotPrinting = false;
+
+  self.socket.on("printer_enabled", function(optionalPrinting){
+    console.log("socket printer_enabled received, optionalPrinting is" + optionalPrinting);
+      if (optionalPrinting) {
+        self.shouldSendNotPrinting = true;
+        self.fsm.show_print_message();
+        // FIXME: consider a bigger timeout here?
+        self.buttonPrint = setTimeout(function(){
+          // alert("Hello");
+          self.fsm.show_message();
+        }, self.config.next_delay);
+      } else {
+        self.socket.emit('print');
+        setTimeout(function(){
+          self.fsm.print_set();
+        }, self.config.next_delay);
+      }
+  });
+  self.socket.on("review_composited", function() {
+    setTimeout(function() {
+      self.fsm.show_message()
+    }, self.config.next_delay);
+  });
+  self.socket.on("print", function() {
+    self.fsm.print_set();
+  });
 
   this.fsm = StateMachine.create({
     initial: 'loading',
@@ -38,7 +68,12 @@ var ShmileStateMachine = function(photoView, socket, appState, config, buttonVie
       { name: 'photo_updated', from: 'review_photo', to: 'next_photo' },
       { name: 'continue_partial_set', from: 'next_photo', to: 'waiting_for_photo' },
       { name: 'finish_set', from: 'next_photo', to: 'review_composited' },
-      { name: 'next_set', from: 'review_composited', to: 'ready'}
+      { name: 'show_print_message', from: 'review_composited', to: 'print_message' },
+      { name: 'print_set', from: ['print_message', 'review_composited'], to: 'printing'},
+      // { name: 'print_ok', from: 'printing', to: 'ready'},
+      { name: 'print_not_ok', from: 'printing', to: 'show_error_message'},
+      { name: 'show_message', from: ['review_composited', 'print_message', 'printing', 'show_error_message'], to: 'show_goodbye_message'},
+      { name: 'next_set', from: 'show_goodbye_message', to: 'ready'}
     ],
     callbacks: {
       onconnected: function() {
@@ -48,6 +83,7 @@ var ShmileStateMachine = function(photoView, socket, appState, config, buttonVie
         });
       },
       onenterready: function() {
+        self.shouldSendNotPrinting = false;
         self.photoView.resetState();
       },
       onleaveready: function() {
@@ -86,11 +122,26 @@ var ShmileStateMachine = function(photoView, socket, appState, config, buttonVie
       onenterreview_composited: function(e, f, t) {
         self.socket.emit('composite');
         self.photoView.showOverlay(true);
-        setTimeout(function() {
-          self.fsm.next_set()
-        }, self.config.next_delay);
       },
-      onleavereview_composited: function(e, f, t) {
+      onenterprinting: function(e, f, t) {
+        clearTimeout(self.buttonPrint);
+        self.shouldSendNotPrinting = false;
+        setTimeout(function() {
+          self.fsm.show_message();
+        }, self.config.between_snap_delay);
+      },
+      onentershow_goodbye_message: function(e, f, t) {
+        // Clean up
+        self.fsm.next_set();
+        self.snackbar.hideMe();
+        if (self.shouldSendNotPrinting) {
+          self.socket.emit('do_not_print')
+        }
+      },
+      onenterprint_message: function(e, f, t) {
+        self.snackbar.showMe();
+      },
+      onleaveshow_goodbye_message: function(e, f, t) {
         // Clean up
         self.photoView.animate('out');
         self.photoView.modalMessage('Nice!', self.config.nice_delay, 200, function() {
